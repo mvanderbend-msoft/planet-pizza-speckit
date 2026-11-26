@@ -11,7 +11,7 @@ on:
       id: ready
       uses: actions/github-script@v9
       env:
-        MAX_PARALLEL: "2"
+        MAX_PARALLEL: "4"
       with:
         script: |
           const max = Number(process.env.MAX_PARALLEL);
@@ -76,16 +76,16 @@ safe-outputs:
       - agent:design-assets
       - agent:tester
     target: "*"
-    max: 2
+    max: 4
   add-comment:
     target: "*"
-    max: 2
+    max: 4
   jobs:
     assign-specialist:
       description: "Assign one ready Spec Kit task issue to Copilot cloud agent using a specialist custom agent"
       runs-on: ubuntu-latest
       output: "Issue assigned to Copilot with the chosen specialist agent."
-      max: 2
+      max: 4
       permissions:
         contents: read
       inputs:
@@ -103,7 +103,7 @@ safe-outputs:
           env:
             GH_TOKEN: ${{ secrets.GH_AW_AGENT_TOKEN }}
             REPO: ${{ github.repository }}
-            MAX_PARALLEL: "2"
+            MAX_PARALLEL: "4"
           run: |
             set -euo pipefail
             if [ -z "${GH_TOKEN}" ]; then echo "::error::GH_AW_AGENT_TOKEN secret is not set"; exit 1; fi
