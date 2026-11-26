@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react';
-import { ApiError, api, formatPrice, type OrderTracking } from '../api/client';
+import { useEffect, useState, type FormEvent } from 'react';
+import { ApiError, api, clearOrderAccess, formatPrice, type OrderTracking } from '../api/client';
 import TrackingTimeline from './TrackingTimeline';
 
 const REQUIRED_MESSAGE = 'The mothership needs this field filled in.';
@@ -35,13 +35,62 @@ function hasFieldError(fieldErrors: Record<string, unknown>, field: string) {
   return Array.isArray(errors) ? errors.length > 0 : Boolean(errors);
 }
 
-export default function TrackingLookup() {
-  const [orderNumber, setOrderNumber] = useState('');
+type TrackingLookupProps = {
+  initialOrderNumber?: string;
+  orderId?: number;
+  accessToken?: string;
+};
+
+export default function TrackingLookup({ initialOrderNumber = '', orderId, accessToken }: TrackingLookupProps) {
+  const [orderNumber, setOrderNumber] = useState(initialOrderNumber);
   const [email, setEmail] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{ orderNumber?: string; email?: string }>({});
   const [order, setOrder] = useState<OrderTracking | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [autoLookup, setAutoLookup] = useState<'loading' | 'result' | 'form'>(
+    orderId !== undefined && accessToken ? 'loading' : 'form',
+  );
+
+  useEffect(() => {
+    setOrder(null);
+    setMessage(null);
+    setFieldErrors({});
+    setOrderNumber(initialOrderNumber);
+    setEmail('');
+    if (orderId === undefined || !accessToken) {
+      setAutoLookup('form');
+      return;
+    }
+
+    let active = true;
+    setAutoLookup('loading');
+
+    const timer = setTimeout(() => {
+      api.trackOrder({ order_number: orderId, access_token: accessToken })
+        .then((result) => {
+          if (!active) return;
+          setOrder(result);
+          setAutoLookup('result');
+        })
+        .catch((error: unknown) => {
+          if (!active) return;
+          if (error instanceof ApiError && error.status === 404) {
+            clearOrderAccess(orderId);
+            setOrderNumber(initialOrderNumber || String(orderId));
+            setEmail('');
+          } else {
+            setMessage(error instanceof ApiError && error.status === 429 ? COOLDOWN_MESSAGE : SIGNAL_LOST_MESSAGE);
+          }
+          setAutoLookup('form');
+        });
+    }, 0);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [orderId, accessToken, initialOrderNumber]);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -114,7 +163,8 @@ export default function TrackingLookup() {
 
   return (
     <div className="space-y-6">
-      <form onSubmit={onSubmit} noValidate className="card p-6 space-y-4">
+      {autoLookup === 'loading' && <p role="status">Scanning…</p>}
+      {autoLookup === 'form' && <form onSubmit={onSubmit} noValidate className="card p-6 space-y-4">
         <div>
           <label htmlFor="tracking-order-number" className="font-mono text-sm uppercase text-slate-600">Order number</label>
           <input
@@ -160,7 +210,7 @@ export default function TrackingLookup() {
         <button type="submit" disabled={submitting} className="btn-primary w-full">
           {submitting ? 'Scanning…' : 'Scan the skies'}
         </button>
-      </form>
+      </form>}
 
       <p role="status" className="sr-only">
         {order ? `Order #${order.id}. Status decrypted.` : ''}
