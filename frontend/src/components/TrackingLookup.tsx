@@ -66,25 +66,30 @@ export default function TrackingLookup({ initialOrderNumber = '', orderId, acces
     let active = true;
     setAutoLookup('loading');
 
-    api.trackOrder({ order_number: orderId, access_token: accessToken })
-      .then((result) => {
-        if (!active) return;
-        setOrder(result);
-        setAutoLookup('result');
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        if (error instanceof ApiError && error.status === 404) {
-          clearOrderAccess(orderId);
-          setOrderNumber(initialOrderNumber || String(orderId));
-          setEmail('');
-        } else {
-          setMessage(error instanceof ApiError && error.status === 429 ? COOLDOWN_MESSAGE : SIGNAL_LOST_MESSAGE);
-        }
-        setAutoLookup('form');
-      });
+    const timer = setTimeout(() => {
+      api.trackOrder({ order_number: orderId, access_token: accessToken })
+        .then((result) => {
+          if (!active) return;
+          setOrder(result);
+          setAutoLookup('result');
+        })
+        .catch((error: unknown) => {
+          if (!active) return;
+          if (error instanceof ApiError && error.status === 404) {
+            clearOrderAccess(orderId);
+            setOrderNumber(initialOrderNumber || String(orderId));
+            setEmail('');
+          } else {
+            setMessage(error instanceof ApiError && error.status === 429 ? COOLDOWN_MESSAGE : SIGNAL_LOST_MESSAGE);
+          }
+          setAutoLookup('form');
+        });
+    }, 0);
 
-    return () => { active = false; };
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
   }, [orderId, accessToken, initialOrderNumber]);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
