@@ -1,12 +1,39 @@
 import { useState, type FormEvent } from 'react';
-import { api, formatPrice, type OrderTracking } from '../api/client';
+import { ApiError, api, formatPrice, type OrderTracking } from '../api/client';
 import TrackingTimeline from './TrackingTimeline';
 
 const REQUIRED_MESSAGE = 'The mothership needs this field filled in.';
 const INVALID_NUMBER_MESSAGE = 'That order number looks scrambled. Use the digits from your confirmation, like #42.';
 const INVALID_EMAIL_MESSAGE = "That transmission address won't reach orbit. Double-check your email.";
+const NO_MATCH_MESSAGE = "The mothership couldn't find a matching abduction. Double-check your order number and transmission, then try again. 👽";
+const COOLDOWN_MESSAGE = 'Whoa, earthling. The mothership needs a moment to cool its scanners. Try again in a minute.';
+const SIGNAL_LOST_MESSAGE = 'Signal lost somewhere over Nevada. Try again in a moment. 📡';
 // Match the backend's Zod v3 email validator.
 const EMAIL_PATTERN = /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getValidationFieldErrors(error: ApiError): Record<string, unknown> | null {
+  const separator = error.message.indexOf(':');
+  if (separator === -1) return null;
+
+  try {
+    const body: unknown = JSON.parse(error.message.slice(separator + 1).trim());
+    if (!isRecord(body) || !isRecord(body.details) || !isRecord(body.details.fieldErrors)) {
+      return null;
+    }
+    return body.details.fieldErrors;
+  } catch {
+    return null;
+  }
+}
+
+function hasFieldError(fieldErrors: Record<string, unknown>, field: string) {
+  const errors = fieldErrors[field];
+  return Array.isArray(errors) ? errors.length > 0 : Boolean(errors);
+}
 
 export default function TrackingLookup() {
   const [orderNumber, setOrderNumber] = useState('');
@@ -57,8 +84,29 @@ export default function TrackingLookup() {
         order_number: String(parsedOrderNumber),
         email: normalizedEmail,
       }));
-    } catch {
-      setMessage("The mothership couldn't find a matching abduction. Double-check your order number and transmission, then try again. 👽");
+    } catch (error: unknown) {
+      if (!(error instanceof ApiError) || error.status >= 500) {
+        setMessage(SIGNAL_LOST_MESSAGE);
+      } else if (error.status === 404) {
+        setMessage(NO_MATCH_MESSAGE);
+      } else if (error.status === 429) {
+        setMessage(COOLDOWN_MESSAGE);
+      } else if (error.status === 400) {
+        const serverFieldErrors = getValidationFieldErrors(error);
+        const errors: { orderNumber?: string; email?: string } = {};
+        if (serverFieldErrors && hasFieldError(serverFieldErrors, 'order_number')) {
+          errors.orderNumber = INVALID_NUMBER_MESSAGE;
+        }
+        if (serverFieldErrors && hasFieldError(serverFieldErrors, 'email')) {
+          errors.email = INVALID_EMAIL_MESSAGE;
+        }
+        if (Object.keys(errors).length === 0) {
+          errors.orderNumber = INVALID_NUMBER_MESSAGE;
+        }
+        setFieldErrors(errors);
+      } else {
+        setMessage(SIGNAL_LOST_MESSAGE);
+      }
     } finally {
       setSubmitting(false);
     }
