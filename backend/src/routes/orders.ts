@@ -137,8 +137,19 @@ ordersRouter.post('/track', lookupRateLimit, (req, res) => {
 });
 
 ordersRouter.get('/:id', lookupRateLimit, (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
+  const parsed = z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().positive().safe()).safeParse(req.params.id);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid id' });
+
+  const token = req.get('X-Order-Access-Token');
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return res.status(404).json(NOT_FOUND);
+
+  const id = parsed.data;
+  const tokenHash = createHash('sha256').update(token).digest('hex');
+  const match = db.prepare(
+    'SELECT id FROM orders WHERE id = ? AND access_token_hash = ? AND access_expires_at > ?'
+  ).get(id, tokenHash, new Date().toISOString());
+  if (!match) return res.status(404).json(NOT_FOUND);
+
   const order = loadOrder(id);
   if (!order) return res.status(404).json(NOT_FOUND);
   res.json(order);
