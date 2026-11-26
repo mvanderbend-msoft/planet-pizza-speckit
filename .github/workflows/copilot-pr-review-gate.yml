@@ -1,6 +1,7 @@
 name: Copilot PR review gate
 
-# When Copilot cloud agent finishes a PR (it requests a review from the person who assigned it):
+# When Copilot cloud agent finishes a PR:
+#   0. Copilot drops "[WIP]" from the PR title just before it finishes -> wait for copilot_work_finished
 #   1. mark the PR ready for review
 #   2. request a Copilot code review and wait for it
 #   3. no review comments  -> squash-merge
@@ -8,14 +9,13 @@ name: Copilot PR review gate
 # Merging closes the linked issue, which lets the Spec Kit scheduler pick up the next task.
 on:
   pull_request_target:
-    types: [review_requested]
+    types: [review_requested, edited]
   workflow_dispatch:
     inputs:
       pr:
         description: Pull request number
         required: true
-  # Copilot doesn't always request a review when it finishes (for example on a PR without changes),
-  # so a sweep also picks up finished Copilot draft PRs.
+  # Backup in case an event is missed: pick up finished Copilot draft PRs.
   schedule:
     - cron: "*/5 * * * *"
 
@@ -50,13 +50,18 @@ jobs:
           done
 
   gate:
-    # Only react to Copilot's own "I'm done" review request, not to the review request this job makes.
+    # React to Copilot's "I'm done" signals only: the [WIP] title removal, or (older behaviour)
+    # Copilot requesting a review from a user. Not to the review request this job makes.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_target' &&
        startsWith(github.event.pull_request.head.ref, 'copilot/') &&
-       github.event.sender.login == 'Copilot' &&
-       github.event.requested_reviewer.type == 'User')
+       ((github.event.action == 'edited' &&
+         startsWith(github.event.changes.title.from, '[WIP]') &&
+         !startsWith(github.event.pull_request.title, '[WIP]')) ||
+        (github.event.action == 'review_requested' &&
+         github.event.sender.login == 'Copilot' &&
+         github.event.requested_reviewer.type == 'User')))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -101,6 +106,17 @@ jobs:
 
           state=$(gh pr view "$PR" --json state -q .state)
           [ "$state" = OPEN ] || { summary "PR #$PR is $state, nothing to do."; exit 0; }
+
+          # The title change comes a few seconds before Copilot is really done: wait for copilot_work_finished.
+          for _ in $(seq 1 60); do
+            t=$(gh api "repos/$GH_REPO/issues/$PR/timeline" --paginate)
+            started=$(echo "$t" | jq -rs '[.[][] | select(.event == "copilot_work_started") | .created_at] | max // ""')
+            finished=$(echo "$t" | jq -rs '[.[][] | select(.event == "copilot_work_finished") | .created_at] | max // ""')
+            [[ -n "$finished" && ! "$finished" < "$started" ]] && break
+            sleep 10
+          done
+          [[ -n "$finished" && ! "$finished" < "$started" ]] || { echo "::error::Copilot did not finish within 10 minutes"; exit 1; }
+          summary "🤖 Copilot finished PR #$PR."
 
           # Verification-only tasks produce a PR without changes: nothing to review or merge.
           if [ "$(gh pr view "$PR" --json changedFiles -q .changedFiles)" = 0 ]; then
