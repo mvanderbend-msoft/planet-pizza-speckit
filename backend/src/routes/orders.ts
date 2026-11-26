@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../db';
+import { lookupRateLimit } from '../lib/rateLimit';
 
 export const ordersRouter = Router();
 
@@ -105,7 +106,7 @@ ordersRouter.post('/', (req, res) => {
   }
 });
 
-ordersRouter.post('/track', (req, res) => {
+ordersRouter.post('/track', lookupRateLimit, (req, res) => {
   const parsed = trackingEmailSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid', details: parsed.error.flatten() });
@@ -131,7 +132,7 @@ ordersRouter.post('/track', (req, res) => {
   });
 });
 
-ordersRouter.get('/:id', (req, res) => {
+ordersRouter.get('/:id', lookupRateLimit, (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
   const order = loadOrder(id);
