@@ -105,3 +105,8 @@ Stay in character whenever generating user-facing copy, names, or assets.
 - **No real payment, no auth, no admin UI, no pizza customization** —
   this is an MVP. Adding any of those is a scope change; surface it as a
   question to the user rather than silently implementing.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->
