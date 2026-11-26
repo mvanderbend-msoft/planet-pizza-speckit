@@ -15,6 +15,7 @@ export default function App() {
         <Route index element={<HomePage />} />
         <Route path="/pizzas" element={<CatalogPage category="pizza" title="Pizza Transmissions" subtitle="hand-tossed in hangar 18" />} />
         <Route path="/merch" element={<CatalogPage category="merch" title="Earthling Merchandise" subtitle="declassified gear" />} />
+        <Route path="/track" element={<TrackingPage />} />
         <Route path="/product/:id" element={<ProductDetailPage />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/checkout" element={<CheckoutPage />} />

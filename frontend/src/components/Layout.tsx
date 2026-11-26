@@ -14,6 +14,7 @@ export default function Layout() {
           <nav className="flex items-center gap-6 font-display uppercase text-sm tracking-wider">
             <NavLink to="/pizzas" className={navClass}>Pizzas</NavLink>
             <NavLink to="/merch" className={navClass}>Merch</NavLink>
+            <NavLink to="/track" className={navClass}>Track Your Abduction</NavLink>
             <NavLink to="/cart" className={navClass}>
               Cart {totalCount > 0 && <span className="ml-1 rounded-full bg-alien-600 px-2 py-0.5 text-xs text-white">{totalCount}</span>}
             </NavLink>
