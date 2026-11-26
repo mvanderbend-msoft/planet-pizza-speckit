@@ -29,7 +29,7 @@ npm run dev
 - Backend: http://localhost:3001 (REST API under `/api`)
 - Frontend: http://localhost:5173 (Vite dev server; `/api` is proxied to the backend)
 
-The SQLite database is created at `backend/data/app.db` on first boot and auto-seeded with ~8 themed pizzas and ~6 merch items.
+By default, the SQLite database is created at `backend/data/app.db` on first boot and auto-seeded with ~8 themed pizzas and ~6 merch items. Set `DB_PATH` to use a different location.
 
 ## Build for production
 
@@ -76,13 +76,15 @@ order's tracking result when this browser has its unexpired order access token.
 | POST   | `/api/orders/track`           | Look up tracking by order number and email, or by order number and access token; returns stage, items, and total |
 
 `POST /api/orders/track` and `GET /api/orders/:id` share a rate limit of 10
-requests per minute per source; excess requests receive `429 Too Many Lookups`
-and a one-minute cooldown.
+requests per minute per IP observed by Express (`req.ip`); excess requests receive
+`429 Too Many Requests` with JSON `error: "Too many lookups"` and a one-minute
+cooldown. The response includes `Retry-After` and `retry_after_seconds` for the
+remaining cooldown.
 
 ## Notes & scope
 
 - **MVP scope**: catalog browsing, cart, mock checkout, persisted orders.
-- If the orders table misbehaves after a schema change, delete `backend/data/app.db*` and restart; the database is recreated and seeded on boot.
+- If the orders table misbehaves after a schema change, back up any data you need and stop the backend (and any other process using the database) before resetting it. Deleting the database permanently removes all orders and order items; startup seeds products only, not purchases. Delete the database file and its SQLite `-wal` and `-shm` files, if present: by default these are `backend/data/app.db`, `backend/data/app.db-wal`, and `backend/data/app.db-shm`. If `DB_PATH` is set, use that path and its corresponding `-wal` and `-shm` files instead. Restart the backend to recreate the database.
 - **No real payment** — the "Pay" button just creates the order with status `paid`.
 - **No auth / admin** — out of scope for the MVP.
 - **Pizzas are fixed-menu items** — no size or topping customization.
