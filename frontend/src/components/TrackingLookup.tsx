@@ -56,6 +56,10 @@ export default function TrackingLookup() {
         </button>
       </form>
 
+      <p role="status" className="sr-only">
+        {order ? `Order #${order.id}. Status decrypted.` : ''}
+      </p>
+
       {order && (
         <section className="card p-6 space-y-6">
           <p className="eyebrow">Order #{order.id}. Status decrypted.</p>
