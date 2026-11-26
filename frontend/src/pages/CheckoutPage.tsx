@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { api, formatPrice } from '../api/client';
+import { api, formatPrice, saveOrderAccess } from '../api/client';
 import { useCart } from '../context/CartContext';
 
 export default function CheckoutPage() {
@@ -21,6 +21,7 @@ export default function CheckoutPage() {
         customer: form,
         items: items.map((i) => ({ productId: i.product.id, quantity: i.quantity })),
       });
+      saveOrderAccess(order.id, order.access_token, order.access_expires_at);
       clear();
       navigate(`/order/${order.id}`, { replace: true });
     } catch (err) {
