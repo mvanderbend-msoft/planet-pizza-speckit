@@ -1,6 +1,14 @@
+import { useParams } from 'react-router-dom';
+import { getOrderAccess } from '../api/client';
 import TrackingLookup from '../components/TrackingLookup';
 
 export default function TrackingPage() {
+  const { orderId: orderIdParam } = useParams<{ orderId: string }>();
+  const parsedOrderId = orderIdParam && /^\d+$/.test(orderIdParam) ? Number(orderIdParam) : NaN;
+  const orderId = Number.isSafeInteger(parsedOrderId) && parsedOrderId > 0 && parsedOrderId <= 2147483647
+    ? parsedOrderId
+    : undefined;
+
   return (
     <div>
       <div className="mb-8">
@@ -10,7 +18,16 @@ export default function TrackingPage() {
           Enter your order number and the transmission you used at checkout, earthling. The mothership will check its logs.
         </p>
       </div>
-      <TrackingLookup />
+      {orderId ? (
+        <TrackingLookup
+          key={orderId}
+          initialOrderNumber={String(orderId)}
+          orderId={orderId}
+          accessToken={getOrderAccess(orderId) ?? undefined}
+        />
+      ) : (
+        <TrackingLookup />
+      )}
     </div>
   );
 }
