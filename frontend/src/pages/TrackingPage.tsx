@@ -5,7 +5,9 @@ import TrackingLookup from '../components/TrackingLookup';
 export default function TrackingPage() {
   const { orderId: orderIdParam } = useParams<{ orderId: string }>();
   const parsedOrderId = orderIdParam && /^\d+$/.test(orderIdParam) ? Number(orderIdParam) : NaN;
-  const orderId = Number.isSafeInteger(parsedOrderId) && parsedOrderId > 0 ? parsedOrderId : undefined;
+  const orderId = Number.isSafeInteger(parsedOrderId) && parsedOrderId > 0 && parsedOrderId <= 2147483647
+    ? parsedOrderId
+    : undefined;
 
   return (
     <div>
