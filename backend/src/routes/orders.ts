@@ -22,6 +22,19 @@ const createOrderSchema = z.object({
     .min(1),
 });
 
+const orderNumberSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== 'string' && typeof value !== 'number') return value;
+    return String(value).trim().replace(/^#/, '').trim();
+  },
+  z.string().regex(/^\d{1,10}$/).transform(Number).pipe(z.number().int().min(1).max(2147483647))
+);
+
+const trackingEmailSchema = z.object({
+  order_number: orderNumberSchema,
+  email: z.string().trim().toLowerCase().email().max(200),
+}).strict();
+
 type ProductRow = { id: number; name: string; price_cents: number; stock: number };
 type OrderRow = {
   id: number;
