@@ -2,9 +2,14 @@ import { useState, type FormEvent } from 'react';
 import { api, formatPrice, type OrderTracking } from '../api/client';
 import TrackingTimeline from './TrackingTimeline';
 
+const REQUIRED_MESSAGE = 'The mothership needs this field filled in.';
+const INVALID_NUMBER_MESSAGE = 'That order number looks scrambled. Use the digits from your confirmation, like #42.';
+const INVALID_EMAIL_MESSAGE = "That transmission address won't reach orbit. Double-check your email.";
+
 export default function TrackingLookup() {
   const [orderNumber, setOrderNumber] = useState('');
   const [email, setEmail] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{ orderNumber?: string; email?: string }>({});
   const [order, setOrder] = useState<OrderTracking | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -14,9 +19,42 @@ export default function TrackingLookup() {
     if (submitting) return;
     setOrder(null);
     setMessage(null);
+
+    const trimmedOrderNumber = orderNumber.trim();
+    const numberWithoutPrefix = trimmedOrderNumber.replace(/^#/, '').trim();
+    const parsedOrderNumber = Number(numberWithoutPrefix);
+    const normalizedEmail = email.trim().toLowerCase();
+    const errors: { orderNumber?: string; email?: string } = {};
+
+    if (!trimmedOrderNumber) {
+      errors.orderNumber = REQUIRED_MESSAGE;
+    } else if (
+      !/^\d{1,10}$/.test(numberWithoutPrefix) ||
+      !Number.isInteger(parsedOrderNumber) ||
+      parsedOrderNumber < 1 ||
+      parsedOrderNumber > 2147483647
+    ) {
+      errors.orderNumber = INVALID_NUMBER_MESSAGE;
+    }
+
+    if (!normalizedEmail) {
+      errors.email = REQUIRED_MESSAGE;
+    } else if (
+      normalizedEmail.length > 200 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)
+    ) {
+      errors.email = INVALID_EMAIL_MESSAGE;
+    }
+
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
     setSubmitting(true);
     try {
-      setOrder(await api.trackOrder({ order_number: orderNumber, email }));
+      setOrder(await api.trackOrder({
+        order_number: String(parsedOrderNumber),
+        email: normalizedEmail,
+      }));
     } catch {
       setMessage("The mothership couldn't find a matching abduction. Double-check your order number and transmission, then try again. 👽");
     } finally {
@@ -26,7 +64,7 @@ export default function TrackingLookup() {
 
   return (
     <div className="space-y-6">
-      <form onSubmit={onSubmit} className="card p-6 space-y-4">
+      <form onSubmit={onSubmit} noValidate className="card p-6 space-y-4">
         <div>
           <label htmlFor="tracking-order-number" className="font-mono text-sm uppercase text-slate-600">Order number</label>
           <input
@@ -34,10 +72,19 @@ export default function TrackingLookup() {
             className="input mt-1"
             inputMode="numeric"
             placeholder="#42"
-            required
+            aria-invalid={Boolean(fieldErrors.orderNumber)}
+            aria-describedby={fieldErrors.orderNumber ? 'tracking-order-number-error' : undefined}
             value={orderNumber}
-            onChange={(e) => setOrderNumber(e.target.value)}
+            onChange={(e) => {
+              setOrderNumber(e.target.value);
+              setFieldErrors((current) => ({ ...current, orderNumber: undefined }));
+            }}
           />
+          {fieldErrors.orderNumber && (
+            <p id="tracking-order-number-error" role="alert" className="mt-1 text-red-600 text-sm">
+              {fieldErrors.orderNumber}
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor="tracking-email" className="font-mono text-sm uppercase text-slate-600">Email transmission</label>
@@ -45,10 +92,19 @@ export default function TrackingLookup() {
             id="tracking-email"
             type="email"
             className="input mt-1"
-            required
+            aria-invalid={Boolean(fieldErrors.email)}
+            aria-describedby={fieldErrors.email ? 'tracking-email-error' : undefined}
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setFieldErrors((current) => ({ ...current, email: undefined }));
+            }}
           />
+          {fieldErrors.email && (
+            <p id="tracking-email-error" role="alert" className="mt-1 text-red-600 text-sm">
+              {fieldErrors.email}
+            </p>
+          )}
         </div>
         {message && <p role="alert" className="text-red-600 text-sm">{message}</p>}
         <button type="submit" disabled={submitting} className="btn-primary w-full">
