@@ -76,6 +76,8 @@ export const api = {
     items: { productId: number; quantity: number }[];
   }) => request<Order>('/orders', { method: 'POST', body: JSON.stringify(body) }),
   getOrder: (id: number) => request<Order>(`/orders/${id}`),
+  trackOrder: (body: { order_number: string; email: string }) =>
+    request<OrderTracking>('/orders/track', { method: 'POST', body: JSON.stringify(body) }),
 };
 
 export const formatPrice = (cents: number) => `$${(cents / 100).toFixed(2)}`;
