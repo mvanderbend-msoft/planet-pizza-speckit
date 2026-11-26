@@ -32,6 +32,11 @@ export type Order = {
   items: OrderItem[];
 };
 
+export type CreatedOrder = Order & {
+  access_token: string;
+  access_expires_at: string;
+};
+
 export type OrderTrackingItem = {
   id: number;
   name_snapshot: string;
@@ -48,6 +53,60 @@ export type OrderTracking = {
 };
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api';
+const ORDER_ACCESS_KEY = 'planet-pizza-order-access';
+
+type OrderAccess = Record<string, { token: string; expires_at: string }>;
+
+function readOrderAccess(): OrderAccess {
+  const entries: OrderAccess = Object.create(null);
+  try {
+    const raw = localStorage.getItem(ORDER_ACCESS_KEY);
+    if (!raw) return entries;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return entries;
+
+    let pruned = false;
+    for (const [id, value] of Object.entries(parsed)) {
+      if (
+        value && typeof value === 'object' &&
+        typeof value.token === 'string' && value.token &&
+        typeof value.expires_at === 'string' && Date.parse(value.expires_at) > Date.now()
+      ) {
+        entries[id] = { token: value.token, expires_at: value.expires_at };
+      } else {
+        pruned = true;
+      }
+    }
+    if (pruned) localStorage.setItem(ORDER_ACCESS_KEY, JSON.stringify(entries));
+  } catch {
+    // Storage may be unavailable or contain invalid JSON.
+  }
+  return entries;
+}
+
+export function saveOrderAccess(id: number, token: string, expiresAt: string): void {
+  const entries = readOrderAccess();
+  entries[id] = { token, expires_at: expiresAt };
+  try {
+    localStorage.setItem(ORDER_ACCESS_KEY, JSON.stringify(entries));
+  } catch {
+    // Storage may be unavailable.
+  }
+}
+
+export function getOrderAccess(id: number): string | null {
+  return readOrderAccess()[id]?.token ?? null;
+}
+
+export function clearOrderAccess(id: number): void {
+  const entries = readOrderAccess();
+  delete entries[id];
+  try {
+    localStorage.setItem(ORDER_ACCESS_KEY, JSON.stringify(entries));
+  } catch {
+    // Storage may be unavailable.
+  }
+}
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -74,9 +133,12 @@ export const api = {
   createOrder: (body: {
     customer: { name: string; email: string; address: string };
     items: { productId: number; quantity: number }[];
-  }) => request<Order>('/orders', { method: 'POST', body: JSON.stringify(body) }),
-  getOrder: (id: number) => request<Order>(`/orders/${id}`),
-  trackOrder: (body: { order_number: string; email: string }) =>
+  }) => request<CreatedOrder>('/orders', { method: 'POST', body: JSON.stringify(body) }),
+  getOrder: (id: number, accessToken?: string) =>
+    request<Order>(`/orders/${id}`, accessToken
+      ? { headers: { 'X-Order-Access-Token': accessToken } }
+      : undefined),
+  trackOrder: (body: { order_number: string; email: string } | { order_number: string | number; access_token: string }) =>
     request<OrderTracking>('/orders/track', { method: 'POST', body: JSON.stringify(body) }),
 };
 
