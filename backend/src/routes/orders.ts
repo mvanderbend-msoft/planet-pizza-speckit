@@ -105,6 +105,32 @@ ordersRouter.post('/', (req, res) => {
   }
 });
 
+ordersRouter.post('/track', (req, res) => {
+  const parsed = trackingEmailSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid', details: parsed.error.flatten() });
+  }
+
+  const order = db.prepare(
+    'SELECT id, tracking_stage, total_cents FROM orders WHERE id = ? AND lower(trim(customer_email)) = ?'
+  ).get(parsed.data.order_number, parsed.data.email) as Pick<OrderRow, 'id' | 'tracking_stage' | 'total_cents'> | undefined;
+  if (!order) return res.status(404).json(NOT_FOUND);
+
+  const items = db.prepare(
+    'SELECT id, name_snapshot, quantity, unit_price_cents FROM order_items WHERE order_id = ?'
+  ).all(order.id) as Array<Pick<OrderItemRow, 'id' | 'name_snapshot' | 'quantity' | 'unit_price_cents'>>;
+
+  return res.json({
+    id: order.id,
+    tracking_stage: order.tracking_stage,
+    items: items.map((item) => ({
+      ...item,
+      line_total_cents: item.unit_price_cents * item.quantity,
+    })),
+    total_cents: order.total_cents,
+  });
+});
+
 ordersRouter.get('/:id', (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
