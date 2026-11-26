@@ -14,20 +14,47 @@ on:
       pr:
         description: Pull request number
         required: true
+  # Copilot doesn't always request a review when it finishes (for example on a PR without changes),
+  # so a sweep also picks up finished Copilot draft PRs.
+  schedule:
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
-  group: copilot-review-gate-${{ github.event.pull_request.number || inputs.pr }}
+  group: copilot-review-gate-${{ github.event.pull_request.number || inputs.pr || 'sweep' }}
   cancel-in-progress: false
 
 jobs:
+  sweep:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GH_AW_AGENT_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Dispatch the gate for finished Copilot draft PRs
+        run: |
+          set -euo pipefail
+          for pr in $(gh pr list --state open --draft --json number,headRefName -q '.[] | select(.headRefName | startswith("copilot/")) | .number'); do
+            t=$(gh api "repos/$GH_REPO/issues/$pr/timeline" --paginate)
+            started=$(echo "$t" | jq -rs '[.[][] | select(.event == "copilot_work_started") | .created_at] | max // ""')
+            finished=$(echo "$t" | jq -rs '[.[][] | select(.event == "copilot_work_finished") | .created_at] | max // ""')
+            if [[ -n "$finished" && ! "$finished" < "$started" ]]; then
+              echo "PR #$pr: Copilot finished → running the gate"
+              gh workflow run copilot-pr-review-gate.yml -f pr="$pr"
+            fi
+          done
+
   gate:
     # Only react to Copilot's own "I'm done" review request, not to the review request this job makes.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.user.login == 'Copilot' &&
+      (github.event_name == 'pull_request_target' &&
+       startsWith(github.event.pull_request.head.ref, 'copilot/') &&
        github.event.sender.login == 'Copilot' &&
        github.event.requested_reviewer.type == 'User')
     runs-on: ubuntu-latest
@@ -74,6 +101,19 @@ jobs:
 
           state=$(gh pr view "$PR" --json state -q .state)
           [ "$state" = OPEN ] || { summary "PR #$PR is $state, nothing to do."; exit 0; }
+
+          # Verification-only tasks produce a PR without changes: nothing to review or merge.
+          if [ "$(gh pr view "$PR" --json changedFiles -q .changedFiles)" = 0 ]; then
+            issues=$( { gh pr view "$PR" --json closingIssuesReferences -q '.closingIssuesReferences[].number'; \
+                        gh pr view "$PR" --json body -q .body | grep -oiE '(fixes|closes|resolves) #[0-9]+' | grep -oE '[0-9]+' || true; } | sort -u)
+            gh pr close "$PR" -c "No code changes were needed, see the description for the verification result. Closing the task." --delete-branch
+            for n in $issues; do
+              gh issue close "$n" -r completed -c "Verified in #$PR, no code changes needed."
+              summary "Closed linked issue #$n."
+            done
+            summary "✅ PR #$PR had no changes → closed it and completed the task."
+            exit 0
+          fi
 
           if [ "$(gh pr view "$PR" --json isDraft -q .isDraft)" = true ]; then
             gh pr ready "$PR"
