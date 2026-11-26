@@ -1,19 +1,65 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, formatPrice, type Order } from '../api/client';
+import { ApiError, api, clearOrderAccess, formatPrice, getOrderAccess, type Order } from '../api/client';
+import TrackingLookup from '../components/TrackingLookup';
+
+type ConfirmationState =
+  | { id: string; status: 'loading' }
+  | { id: string; status: 'restricted' }
+  | { id: string; status: 'error' }
+  | { id: string; status: 'loaded'; order: Order };
 
 export default function OrderConfirmationPage() {
   const { id } = useParams();
-  const [order, setOrder] = useState<Order | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<ConfirmationState | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    api.getOrder(Number(id)).then(setOrder).catch((e) => setError(String(e)));
+    const orderId = Number(id);
+    const token = getOrderAccess(orderId);
+    if (!token) {
+      setState({ id, status: 'restricted' });
+      return;
+    }
+
+    let active = true;
+    setState({ id, status: 'loading' });
+    api.getOrder(orderId, token)
+      .then((order) => {
+        if (active) setState({ id, status: 'loaded', order });
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        if (error instanceof ApiError && error.status === 404) {
+          clearOrderAccess(orderId);
+          setState({ id, status: 'restricted' });
+        } else {
+          setState({ id, status: 'error' });
+        }
+      });
+
+    return () => { active = false; };
   }, [id]);
 
-  if (error) return <p className="text-red-600">Order not found.</p>;
-  if (!order) return <p className="text-slate-500">Decrypting confirmation…</p>;
+  if (!id || !state || state.id !== id || state.status === 'loading') {
+    return <p className="text-slate-500">Decrypting confirmation…</p>;
+  }
+  if (state.status === 'error') {
+    return <p className="text-red-600">Signal lost somewhere over Nevada. Try again in a moment. 📡</p>;
+  }
+  if (state.status === 'restricted') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <p className="eyebrow">Restricted file</p>
+        <p className="mt-4 mb-6 text-slate-700">
+          This confirmation is classified. Enter the order number and transmission to see where it stands.
+        </p>
+        <TrackingLookup key={id} initialOrderNumber={id} />
+      </div>
+    );
+  }
+
+  const { order } = state;
 
   return (
     <div className="max-w-2xl mx-auto card p-8">
@@ -44,7 +90,10 @@ export default function OrderConfirmationPage() {
         Drop coordinates: <span className="text-slate-900">{order.shipping_address}</span>
       </p>
 
-      <Link to="/" className="btn-secondary mt-8 inline-flex">Return to base</Link>
+      <div className="mt-8 flex flex-wrap gap-4">
+        <Link to={`/track/${order.id}`} className="btn-primary">Track your abduction →</Link>
+        <Link to="/" className="btn-secondary">Return to base</Link>
+      </div>
     </div>
   );
 }
