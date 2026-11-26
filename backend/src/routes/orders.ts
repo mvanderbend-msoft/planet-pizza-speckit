@@ -37,6 +37,13 @@ const trackingEmailSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(200),
 }).strict();
 
+const trackingTokenSchema = z.object({
+  order_number: orderNumberSchema,
+  access_token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+}).strict();
+
+const trackingSchema = z.union([trackingEmailSchema, trackingTokenSchema]);
+
 type ProductRow = { id: number; name: string; price_cents: number; stock: number };
 type OrderRow = {
   id: number;
@@ -111,14 +118,22 @@ ordersRouter.post('/', (req, res) => {
 });
 
 ordersRouter.post('/track', lookupRateLimit, (req, res) => {
-  const parsed = trackingEmailSchema.safeParse(req.body);
+  const parsed = trackingSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid', details: parsed.error.flatten() });
   }
 
-  const order = db.prepare(
-    'SELECT id, tracking_stage, total_cents FROM orders WHERE id = ? AND lower(trim(customer_email)) = ?'
-  ).get(parsed.data.order_number, parsed.data.email) as Pick<OrderRow, 'id' | 'tracking_stage' | 'total_cents'> | undefined;
+  const order = ('email' in parsed.data
+    ? db.prepare(
+      'SELECT id, tracking_stage, total_cents FROM orders WHERE id = ? AND lower(trim(customer_email)) = ?'
+    ).get(parsed.data.order_number, parsed.data.email)
+    : db.prepare(
+      'SELECT id, tracking_stage, total_cents FROM orders WHERE id = ? AND access_token_hash = ? AND access_expires_at > ?'
+    ).get(
+      parsed.data.order_number,
+      createHash('sha256').update(parsed.data.access_token).digest('hex'),
+      new Date().toISOString()
+    )) as Pick<OrderRow, 'id' | 'tracking_stage' | 'total_cents'> | undefined;
   if (!order) return res.status(404).json(NOT_FOUND);
 
   const items = db.prepare(
