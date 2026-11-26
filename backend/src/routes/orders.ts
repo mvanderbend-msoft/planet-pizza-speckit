@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { db } from '../db';
 import { lookupRateLimit } from '../lib/rateLimit';
@@ -65,7 +66,7 @@ ordersRouter.post('/', (req, res) => {
 
   const getProduct = db.prepare('SELECT id, name, price_cents, stock FROM products WHERE id = ?');
   const insertOrder = db.prepare(
-    'INSERT INTO orders (customer_name, customer_email, shipping_address, total_cents) VALUES (?, ?, ?, ?)'
+    'INSERT INTO orders (customer_name, customer_email, shipping_address, total_cents, access_token_hash, access_expires_at) VALUES (?, ?, ?, ?, ?, ?)'
   );
   const insertItem = db.prepare(
     'INSERT INTO order_items (order_id, product_id, quantity, unit_price_cents, name_snapshot) VALUES (?, ?, ?, ?, ?)'
@@ -73,6 +74,9 @@ ordersRouter.post('/', (req, res) => {
 
   try {
     let createdId = 0;
+    const accessToken = randomBytes(32).toString('base64url');
+    const accessTokenHash = createHash('sha256').update(accessToken).digest('hex');
+    const accessExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     db.exec('BEGIN');
     try {
       let total = 0;
@@ -87,7 +91,7 @@ ordersRouter.post('/', (req, res) => {
         resolved.push({ p, qty: it.quantity });
       }
 
-      const info = insertOrder.run(customer.name, customer.email, customer.address, total);
+      const info = insertOrder.run(customer.name, customer.email, customer.address, total, accessTokenHash, accessExpiresAt);
       createdId = Number(info.lastInsertRowid);
       for (const { p, qty } of resolved) {
         insertItem.run(createdId, p.id, qty, p.price_cents, p.name);
@@ -99,7 +103,7 @@ ordersRouter.post('/', (req, res) => {
     }
 
     const order = loadOrder(createdId);
-    res.status(201).json(order);
+    res.status(201).json({ ...order, access_token: accessToken, access_expires_at: accessExpiresAt });
   } catch (err: unknown) {
     const e = err as { status?: number; message?: string };
     res.status(e.status ?? 500).json({ error: e.message ?? 'Order failed' });
