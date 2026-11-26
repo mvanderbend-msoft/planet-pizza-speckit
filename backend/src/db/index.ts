@@ -30,7 +30,10 @@ export function migrate(): void {
       customer_email TEXT NOT NULL,
       shipping_address TEXT NOT NULL,
       total_cents INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'paid'
+      status TEXT NOT NULL DEFAULT 'paid',
+      tracking_stage TEXT NOT NULL DEFAULT 'confirmed' CHECK (tracking_stage IN ('confirmed', 'hand_tossed', 'tractor_beam', 'abducted')),
+      access_token_hash TEXT,
+      access_expires_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS order_items (
