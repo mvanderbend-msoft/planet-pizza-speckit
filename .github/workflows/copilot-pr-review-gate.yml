@@ -1,0 +1,133 @@
+name: Copilot PR review gate
+
+# When Copilot cloud agent finishes a PR (it requests a review from the person who assigned it):
+#   1. mark the PR ready for review
+#   2. request a Copilot code review and wait for it
+#   3. no review comments  -> squash-merge
+#      review comments     -> ask @copilot to fix them (max 1 round), then merge when it finishes again
+# Merging closes the linked issue, which lets the Spec Kit scheduler pick up the next task.
+on:
+  pull_request_target:
+    types: [review_requested]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: copilot-review-gate-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    # Only react to Copilot's own "I'm done" review request, not to the review request this job makes.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.user.login == 'Copilot' &&
+       github.event.sender.login == 'Copilot' &&
+       github.event.requested_reviewer.type == 'User')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # User PAT: events caused by GITHUB_TOKEN don't trigger other workflows (the scheduler needs the issue "closed"
+      # event), and only a user can ask @copilot to make changes.
+      GH_TOKEN: ${{ secrets.GH_AW_AGENT_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number || inputs.pr }}
+      REVIEWER: copilot-pull-request-reviewer[bot]
+      FIX_LABEL: copilot-review-fix
+    steps:
+      - name: Review, then merge or ask Copilot to fix
+        run: |
+          set -euo pipefail
+          summary() { echo "$*" | tee -a "$GITHUB_STEP_SUMMARY"; }
+
+          merge() {
+            local m=UNKNOWN
+            for _ in $(seq 1 30); do
+              m=$(gh pr view "$PR" --json mergeable -q .mergeable)
+              [ "$m" != UNKNOWN ] && break
+              sleep 5
+            done
+            if [ "$m" = CONFLICTING ]; then
+              gh label create "$FIX_LABEL" --color FBCA04 --description "Copilot review gate asked Copilot for a fix" 2>/dev/null || true
+              gh pr edit "$PR" --add-label "$FIX_LABEL" >/dev/null
+              gh pr comment "$PR" -b "@copilot This pull request has merge conflicts with \`main\`. Please merge \`main\` into this branch and resolve them."
+              summary "⚠️ PR #$PR has merge conflicts → asked @copilot to resolve them."
+              exit 0
+            fi
+            gh pr merge "$PR" --squash --delete-branch
+            summary "✅ PR #$PR merged."
+            # Fallback: GitHub doesn't always auto-close the linked issue; the scheduler needs that "closed" event.
+            sleep 10
+            for n in $(gh pr view "$PR" --json closingIssuesReferences -q '.closingIssuesReferences[].number'); do
+              if [ "$(gh issue view "$n" --json state -q .state)" = OPEN ]; then
+                gh issue close "$n" -r completed -c "Completed by #$PR."
+                summary "Closed linked issue #$n."
+              fi
+            done
+          }
+
+          state=$(gh pr view "$PR" --json state -q .state)
+          [ "$state" = OPEN ] || { summary "PR #$PR is $state, nothing to do."; exit 0; }
+
+          if [ "$(gh pr view "$PR" --json isDraft -q .isDraft)" = true ]; then
+            gh pr ready "$PR"
+            summary "📝 PR #$PR marked ready for review."
+          fi
+
+          if gh pr view "$PR" --json labels -q '.labels[].name' | grep -qx "$FIX_LABEL"; then
+            timeline=$(gh api "repos/$GH_REPO/issues/$PR/timeline" --paginate)
+            asked=$(echo "$timeline" | jq -rs --arg l "$FIX_LABEL" '[.[][] | select(.event == "labeled" and .label.name == $l) | .created_at] | max // ""')
+            finished=$(echo "$timeline" | jq -rs '[.[][] | select(.event == "copilot_work_finished") | .created_at] | max // ""')
+            if [[ -z "$finished" || "$finished" < "$asked" ]]; then
+              summary "⏳ Waiting for Copilot to finish the fix round on PR #$PR."
+              exit 0
+            fi
+            summary "🔁 Copilot finished its fix round → merging."
+            merge
+            exit 0
+          fi
+
+          before=$(gh api "repos/$GH_REPO/pulls/$PR/reviews" --paginate --jq "[.[] | select(.user.login == \"$REVIEWER\")] | length" | awk '{s+=$1} END {print s+0}')
+          gh api -X POST "repos/$GH_REPO/pulls/$PR/requested_reviewers" -f "reviewers[]=$REVIEWER" >/dev/null \
+            || gh pr edit "$PR" --add-reviewer @copilot
+          summary "🔍 Requested Copilot code review on PR #$PR, waiting for it…"
+
+          rid=""
+          for _ in $(seq 1 90); do
+            rid=$(gh api "repos/$GH_REPO/pulls/$PR/reviews" --paginate --jq ".[] | select(.user.login == \"$REVIEWER\") | .id" | sed -n "$((before + 1))p")
+            [ -n "$rid" ] && break
+            sleep 10
+          done
+          [ -n "$rid" ] || { echo "::error::No Copilot code review within 15 minutes"; exit 1; }
+
+          comments=$(gh api "repos/$GH_REPO/pulls/$PR/reviews/$rid/comments" --paginate --jq 'length' | awk '{s+=$1} END {print s+0}')
+          summary "Copilot code review finished with $comments comment(s)."
+
+          if [ "$comments" -eq 0 ]; then
+            merge
+          else
+            gh label create "$FIX_LABEL" --color FBCA04 --description "Copilot review gate asked Copilot for a fix" 2>/dev/null || true
+            gh pr edit "$PR" --add-label "$FIX_LABEL" >/dev/null
+            gh pr comment "$PR" -b "@copilot Please address the $comments comment(s) from the Copilot code review above. When you're done, this PR will be merged automatically."
+            summary "🛠️ Asked @copilot to fix the review comments (1 round). Waiting for Copilot to finish…"
+            # Copilot doesn't re-request a review after a fix round, so wait for it here.
+            asked=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            for _ in $(seq 1 120); do
+              sleep 15
+              finished=$(gh api "repos/$GH_REPO/issues/$PR/timeline" --paginate \
+                | jq -rs '[.[][] | select(.event == "copilot_work_finished") | .created_at] | max // ""')
+              if [[ -n "$finished" && "$finished" > "$asked" ]]; then
+                summary "🔁 Copilot finished its fix round → merging."
+                merge
+                exit 0
+              fi
+            done
+            echo "::error::Copilot did not finish the fix round within 30 minutes"
+            exit 1
+          fi

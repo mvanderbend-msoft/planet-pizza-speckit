@@ -1,0 +1,37 @@
+name: "Copilot Setup Steps"
+
+# Prepares the environment for Copilot cloud agent before it starts working.
+# Runs automatically on manual dispatch and when this file changes, so it can be validated.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  # The job MUST be called `copilot-setup-steps`, otherwise Copilot ignores it.
+  copilot-setup-steps:
+    # Bigger machines or your own runners? Change runs-on (self-hosted needs the Copilot
+    # firewall turned off in Settings > Copilot > Cloud agent; use ephemeral runners).
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm run install:all

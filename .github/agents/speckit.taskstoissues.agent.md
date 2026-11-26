@@ -1,6 +1,6 @@
 ---
 description: Convert existing tasks into actionable, dependency-ordered GitHub issues for the feature based on available design artifacts.
-tools: ['github/github-mcp-server/issue_write']
+tools: ['execute', 'read', 'search', 'github/*']
 ---
 
 ## User Input
@@ -58,7 +58,45 @@ git config --get remote.origin.url
 > [!CAUTION]
 > ONLY PROCEED TO NEXT STEPS IF THE REMOTE IS A GITHUB URL
 
-1. For each task in the list, use the GitHub MCP server to create a new issue in the repository that is representative of the Git remote.
+1. Create the issues **in dependency order** so the `assign-speckit-tasks` workflow can hand
+   unblocked tasks to Copilot cloud agent. Use the `gh` CLI (`gh issue`, `gh api`) against the
+   repository of the Git remote (`OWNER/REPO`). Follow these steps exactly:
+
+   a. **Parse tasks.md.** Collect every task line `- [ ] Txxx [P?] [USx?] Description`.
+      Skip tasks that are already checked (`- [X]`). Note each task's phase heading.
+
+   b. **Work out blockers** for each task (only between tasks you are creating):
+      - Explicit rules in the "Dependencies & Execution Order" section win
+        (for example "T005 depends on T003 and T004", "T016 → T017", "has no dependencies").
+      - Otherwise, a task is blocked by the tasks of the phase(s) its phase depends on.
+      - Inside a phase, a task without `[P]` is blocked by the previous task in the same
+        phase/story when they touch the same file.
+      - Keep the list minimal: if A is blocked by B and B is blocked by C, don't also add C to A.
+
+   c. **Ensure labels exist** (ignore "already exists" errors):
+      `gh label create speckit --color 7057ff --description "Spec Kit task, picked up by the assign-speckit-tasks workflow"`
+      `gh label create speckit-feature --color 0e8a16 --description "Spec Kit feature parent issue"`
+
+   d. **Create the parent issue** with label `speckit-feature`, title `<feature-dir-name>: <spec title>`,
+      and a body that links to `spec.md`, `plan.md` and `tasks.md` on the default branch.
+
+   e. **Create one issue per task, without labels**, in task order. Title: `Txxx: <short summary>`.
+      Body: the full task text, the phase/user story, `Feature: specs/<feature-dir>/`, and
+      "Read `spec.md`, `plan.md` and `tasks.md` in that folder before you start. Only do this task."
+      Record each issue's **number** and **id** (`gh api repos/OWNER/REPO/issues/N --jq .id`).
+
+   f. **Add each task as a sub-issue** of the parent:
+      `gh api -X POST repos/OWNER/REPO/issues/PARENT/sub_issues -F sub_issue_id=<task issue id>`
+
+   g. **Add the blockers** from step b as native GitHub issue dependencies:
+      `gh api -X POST repos/OWNER/REPO/issues/<blocked number>/dependencies/blocked_by -F issue_id=<blocker issue id>`
+
+   h. **Only now add the `speckit` label** to every task issue, in task order
+      (`gh issue edit N --add-label speckit`). This is what triggers the workflow, so it must
+      happen after all blockers exist.
+
+   i. Report a table: task ID, issue number, blocked by (issue numbers), and which tasks are
+      ready to start now.
 
 > [!CAUTION]
 > UNDER NO CIRCUMSTANCES EVER CREATE ISSUES IN REPOSITORIES THAT DO NOT MATCH THE REMOTE URL
