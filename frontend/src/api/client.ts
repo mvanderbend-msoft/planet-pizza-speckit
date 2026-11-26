@@ -18,6 +18,8 @@ export type OrderItem = {
   name_snapshot: string;
 };
 
+export type TrackingStage = 'confirmed' | 'hand_tossed' | 'tractor_beam' | 'abducted';
+
 export type Order = {
   id: number;
   created_at: string;
@@ -26,10 +28,32 @@ export type Order = {
   shipping_address: string;
   total_cents: number;
   status: string;
+  tracking_stage: TrackingStage;
   items: OrderItem[];
 };
 
+export type OrderTrackingItem = {
+  id: number;
+  name_snapshot: string;
+  quantity: number;
+  unit_price_cents: number;
+  line_total_cents: number;
+};
+
+export type OrderTracking = {
+  id: number;
+  tracking_stage: TrackingStage;
+  items: OrderTrackingItem[];
+  total_cents: number;
+};
+
 const BASE = import.meta.env.VITE_API_URL ?? '/api';
+
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
