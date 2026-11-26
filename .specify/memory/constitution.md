@@ -1,50 +1,162 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+==================
+Version change: (template, unversioned) → 1.0.0
+Bump rationale: First ratified constitution; all placeholders replaced (MAJOR baseline).
+
+Modified principles (template placeholder → new title):
+  [PRINCIPLE_1_NAME] → I. Server Is the Source of Truth (NON-NEGOTIABLE)
+  [PRINCIPLE_2_NAME] → II. Strict Type Safety
+  [PRINCIPLE_3_NAME] → III. Consistent API Contracts
+  [PRINCIPLE_4_NAME] → IV. Use the Existing Stack
+  [PRINCIPLE_5_NAME] → V. Planet Pizza Voice
+Added principles:
+  VI. Green Build Quality Gate
+Added sections:
+  Scope & Stack Constraints (was [SECTION_2_NAME])
+  Development Workflow & Quality Gates (was [SECTION_3_NAME])
+Removed sections: none
+
+Templates / guidance checked:
+  ✅ .specify/templates/plan-template.md — "Constitution Check" gate is generic and derives
+     its gates from this file; "Complexity Tracking" table serves as the place to justify
+     new dependencies (Principle IV). No edit needed.
+  ✅ .specify/templates/spec-template.md — no conflicting mandatory sections. No edit needed.
+  ✅ .specify/templates/tasks-template.md — tests are already OPTIONAL, consistent with
+     Principle VI (no test runner today). No edit needed.
+  ✅ .github/agents/speckit.*.agent.md, .github/prompts/speckit.*.prompt.md — no
+     agent-specific (e.g. CLAUDE-only) references. No edit needed.
+  ✅ .github/copilot-instructions.md, README.md — principles were derived from these;
+     both remain consistent. No edit needed.
+
+Deferred TODOs: none
+-->
+
+# Planet Pizza Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Server Is the Source of Truth (NON-NEGOTIABLE)
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+The backend owns every fact that matters for money and orders.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+- Prices, line totals, and order totals MUST be recomputed on the backend from the
+  `products` table on every order. Any price sent by the client MUST be ignored.
+- Every request body, route param, and query string MUST be parsed with a `zod` schema
+  before it reaches business logic or the database.
+- Money MUST be stored and transported as integer cents in fields named `*_cents`
+  (API/DB) or `*Cents` (local TS variables). Floats MUST NOT be used for money.
+  Display formatting MUST go through `formatPrice` in `frontend/src/api/client.ts`.
+- Multi-statement writes MUST run inside an explicit
+  `BEGIN` / `COMMIT` / `ROLLBACK` block (`node:sqlite` has no transaction helper).
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+**Rationale**: The browser is untrusted. Recomputing prices and validating input on the
+server is the only way to guarantee customers pay the right amount; integer cents remove
+rounding errors.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### II. Strict Type Safety
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+- Both `backend/` and `frontend/` MUST keep `"strict": true` in `tsconfig.json`.
+- `any` (explicit, or implicit via casts like `as any`) MUST NOT be introduced. Use
+  `unknown` plus narrowing, `zod`-inferred types, or explicit types instead.
+- `// @ts-ignore` and `// @ts-expect-error` MUST NOT be used to silence real errors.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+**Rationale**: Strict types catch contract drift and money bugs at build time, which is
+our main safety net while there is no automated test suite.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+### III. Consistent API Contracts
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+- JSON fields in API requests and responses MUST use `snake_case`, matching the SQLite
+  column names.
+- TypeScript types in `frontend/src/api/client.ts` MUST mirror the backend response
+  shapes exactly, keeping `snake_case`. The API MUST NOT be camelCased on either side.
+- Any change to an endpoint's shape MUST update the backend route, the frontend types,
+  and the API table in `README.md` in the same change.
+- Schema changes MUST update the `CREATE TABLE IF NOT EXISTS` statements in
+  `backend/src/db/index.ts` (and `seed.ts` if needed), and the plan MUST call out that
+  `backend/data/app.db` may need to be reset.
+
+**Rationale**: One naming scheme end to end means no mapping layer to drift out of sync.
+
+### IV. Use the Existing Stack
+
+- New work MUST use the established stack: Express + `node:sqlite` + `zod` on the
+  backend; React 18 + React Router v6 + Vite + Tailwind on the frontend.
+- Styling MUST use Tailwind and the shared classes in `frontend/src/index.css`
+  (`btn-primary`, `btn-secondary`, `card`, `input`, `eyebrow`). No inline `style`
+  props, CSS Modules, or CSS-in-JS.
+- `better-sqlite3` MUST NOT be used (native build fails on Windows ARM64).
+- Any new runtime or dev dependency MUST be justified in the feature's `plan.md`
+  (Complexity Tracking table): what it does, why the existing stack can't do it, and
+  the simpler alternative that was rejected.
+
+**Rationale**: A small, known stack keeps the shop easy to run, review, and maintain.
+Every dependency is a long-term cost and a supply-chain risk.
+
+### V. Planet Pizza Voice
+
+- All user-facing copy (UI text, product names and descriptions, error and empty
+  states, confirmation messages) MUST stay in the Planet Pizza voice: playful,
+  conspiratorial, deadpan Alien / Area 51 humor. It MUST NOT be crude or political.
+- Copy MUST reuse the established metaphors where they fit (cargo bay, earthling,
+  transmission, drop coordinates, confirmed by the mothership) without overloading them.
+- Emoji are allowed in copy but MUST NOT appear in identifiers, SKUs, or API fields.
+- Product names MUST be 2–4 words; SKUs MUST be `UPPER-SNAKE` with `PZ-` (pizza) or
+  `MR-` (merch) prefixes; categories are exactly `pizza` and `merch`.
+
+**Rationale**: The brand is the product. Consistent voice is what makes the shop
+recognisably Planet Pizza.
+
+### VI. Green Build Quality Gate
+
+- `npm run build` from the repo root (backend + frontend type-check and build) MUST
+  pass before any change is considered done or merged.
+- The repo has no test runner today. Features MUST NOT invent one implicitly; adding a
+  test framework is a new dependency and falls under Principle IV.
+- Behavior changes MUST be verified by building the affected package and, for API
+  changes, exercising the running endpoint (e.g. with `curl`).
+
+**Rationale**: The build is the one automated gate everyone can run. Keeping it green
+keeps `main` shippable.
+
+## Scope & Stack Constraints
+
+- **Runtime**: Node.js ≥ 22.5 (built-in `node:sqlite`). Two-package monorepo
+  (`backend/`, `frontend/`) driven by `npm --prefix`; no workspace tooling.
+- **Out of scope unless explicitly approved**: authentication, real payment processing,
+  admin UI, pizza size/topping customization, new product categories. A spec that
+  needs any of these MUST flag it as a scope change and get user confirmation before
+  planning.
+- **Stock**: checked on order but not decremented; there is no inventory system.
+- **Docs**: the root `README.md` is the only README. No READMEs inside `backend/` or
+  `frontend/`.
+
+## Development Workflow & Quality Gates
+
+- Every feature follows spec → plan → tasks → implement. The plan's
+  **Constitution Check** MUST list each principle (I–VI) as pass / violation.
+- Violations MUST be recorded in the plan's Complexity Tracking table with a
+  justification, or the design MUST change. Unjustified violations block the plan.
+- Reviews MUST verify: server-side pricing and `zod` validation (I), no new `any` (II),
+  `snake_case` contracts mirrored in `client.ts` (III), justified dependencies (IV),
+  on-brand copy (V), and a passing `npm run build` (VI).
+- Runtime coding guidance lives in `.github/copilot-instructions.md` and
+  `.github/instructions/*.instructions.md`; those files MUST stay consistent with this
+  constitution.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- This constitution supersedes other practices and guidance in this repository. Where
+  guidance files conflict with it, the constitution wins and the guidance file MUST be
+  updated.
+- Amendments are made via `/speckit.constitution`, MUST include an updated Sync Impact
+  Report, and MUST propagate to dependent templates and guidance files in the same
+  change.
+- Versioning follows semantic versioning:
+  - **MAJOR**: a principle is removed or redefined in a backward-incompatible way.
+  - **MINOR**: a principle or section is added or materially expanded.
+  - **PATCH**: clarifications, wording, and typo fixes.
+- Compliance is checked at plan time (Constitution Check) and at review time (checklist
+  above).
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-11-26 | **Last Amended**: 2026-11-26
