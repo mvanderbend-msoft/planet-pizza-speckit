@@ -5,6 +5,8 @@ import TrackingTimeline from './TrackingTimeline';
 const REQUIRED_MESSAGE = 'The mothership needs this field filled in.';
 const INVALID_NUMBER_MESSAGE = 'That order number looks scrambled. Use the digits from your confirmation, like #42.';
 const INVALID_EMAIL_MESSAGE = "That transmission address won't reach orbit. Double-check your email.";
+// Match the backend's Zod v3 email validator.
+const EMAIL_PATTERN = /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i;
 
 export default function TrackingLookup() {
   const [orderNumber, setOrderNumber] = useState('');
@@ -41,7 +43,7 @@ export default function TrackingLookup() {
       errors.email = REQUIRED_MESSAGE;
     } else if (
       normalizedEmail.length > 200 ||
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)
+      !EMAIL_PATTERN.test(normalizedEmail)
     ) {
       errors.email = INVALID_EMAIL_MESSAGE;
     }
