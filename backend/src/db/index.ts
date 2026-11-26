@@ -45,4 +45,16 @@ export function migrate(): void {
       name_snapshot TEXT NOT NULL
     );
   `);
+
+  const columns = db.prepare('PRAGMA table_info(orders)').all() as Array<{ name: string }>;
+  const columnNames = new Set(columns.map((column) => column.name));
+  if (!columnNames.has('tracking_stage')) {
+    db.exec("ALTER TABLE orders ADD COLUMN tracking_stage TEXT NOT NULL DEFAULT 'confirmed' CHECK (tracking_stage IN ('confirmed', 'hand_tossed', 'tractor_beam', 'abducted'))");
+  }
+  if (!columnNames.has('access_token_hash')) {
+    db.exec('ALTER TABLE orders ADD COLUMN access_token_hash TEXT');
+  }
+  if (!columnNames.has('access_expires_at')) {
+    db.exec('ALTER TABLE orders ADD COLUMN access_expires_at TEXT');
+  }
 }

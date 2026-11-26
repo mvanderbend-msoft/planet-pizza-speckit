@@ -4,6 +4,8 @@ import { db } from '../db';
 
 export const ordersRouter = Router();
 
+const NOT_FOUND = { error: 'Order not found' };
+
 const createOrderSchema = z.object({
   customer: z.object({
     name: z.string().min(1).max(120),
@@ -21,6 +23,24 @@ const createOrderSchema = z.object({
 });
 
 type ProductRow = { id: number; name: string; price_cents: number; stock: number };
+type OrderRow = {
+  id: number;
+  created_at: string;
+  customer_name: string;
+  customer_email: string;
+  shipping_address: string;
+  total_cents: number;
+  status: string;
+  tracking_stage: 'confirmed' | 'hand_tossed' | 'tractor_beam' | 'abducted';
+};
+type OrderItemRow = {
+  id: number;
+  order_id: number;
+  product_id: number;
+  quantity: number;
+  unit_price_cents: number;
+  name_snapshot: string;
+};
 
 ordersRouter.post('/', (req, res) => {
   const parsed = createOrderSchema.safeParse(req.body);
@@ -76,15 +96,17 @@ ordersRouter.get('/:id', (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
   const order = loadOrder(id);
-  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (!order) return res.status(404).json(NOT_FOUND);
   res.json(order);
 });
 
 function loadOrder(id: number) {
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id) as
-    | Record<string, unknown>
-    | undefined;
+  const order = db.prepare(
+    'SELECT id, created_at, customer_name, customer_email, shipping_address, total_cents, status, tracking_stage FROM orders WHERE id = ?'
+  ).get(id) as OrderRow | undefined;
   if (!order) return null;
-  const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
+  const items = db.prepare(
+    'SELECT id, order_id, product_id, quantity, unit_price_cents, name_snapshot FROM order_items WHERE order_id = ?'
+  ).all(id) as OrderItemRow[];
   return { ...order, items };
 }
